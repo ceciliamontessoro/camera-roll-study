@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>The Camera Roll Study</title>
+<style>
+  :root {
+    --paper: #F4F1EA;
+    --surface: #FBF9F4;
+    --hairline: #DDD8CC;
+    --ink: #1A1916;
+    --muted: #77736A;
+    --amber: #96660F;
+    --amber-wash: rgba(150, 102, 15, 0.07);
+    --error: #B3372B;
+    --success: #4C8A3F;
+    --display: "Fraunces", Charter, Georgia, "Times New Roman", serif;
+    --body: "Instrument Sans", -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0C0B0A; --surface: #161512; --hairline: #26241F;
+      --ink: #F4F1EA; --muted: #8A857A;
+      --amber: #D9A44A; --amber-wash: rgba(217, 164, 74, 0.09);
+      --error: #D96A5E; --success: #7FB873;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: var(--body); font-size: 1.0625rem; line-height: 1.55;
+    margin: 0; min-height: 100dvh;
+    padding: max(1.25rem, env(safe-area-inset-top)) 1.25rem max(2rem, env(safe-area-inset-bottom));
+  }
+  .app { max-width: 30rem; margin: 0 auto; display: flex; flex-direction: column; min-height: calc(100dvh - 4rem); }
+
+  .topbar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.5rem; }
+  .brand, .stepmark {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .stepmark { color: var(--amber); }
+
+  .card { flex: 1; display: flex; flex-direction: column; }
+  h1, h2 {
+    font-family: var(--display); font-weight: 600; letter-spacing: -0.01em;
+    line-height: 1.15; text-wrap: balance; margin: 0 0 0.75rem;
+  }
+  h1 { font-size: clamp(1.7rem, 7vw, 2.2rem); }
+  h2 { font-size: clamp(1.45rem, 6vw, 1.8rem); }
+  p { margin: 0 0 0.85rem; }
+  .muted { color: var(--muted); font-size: 0.9375rem; }
+  em { font-style: italic; }
+
+  .deal {
+    border: 1px solid var(--amber); background: var(--amber-wash);
+    border-radius: 2px; padding: 0.85rem 1rem; margin: 0.5rem 0 1.25rem; font-size: 0.9375rem;
+  }
+  .deal b { font-weight: 650; }
+
+  label.field { display: block; margin-bottom: 0.9rem; }
+  label.field span {
+    display: block; font-family: var(--mono); font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem;
+  }
+  input[type="text"], textarea {
+    width: 100%; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--hairline); border-radius: 2px;
+    font-family: var(--body); font-size: 1rem; padding: 0.7rem 0.8rem;
+  }
+  textarea { min-height: 7rem; resize: vertical; }
+  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+  .qnum { font-family: var(--mono); font-size: 0.78rem; color: var(--amber); letter-spacing: 0.1em; margin-bottom: 0.4rem; }
+  .recwrap { display: flex; flex-direction: column; align-items: center; gap: 0.8rem; margin: 1.5rem 0; }
+  .recbtn {
+    width: 84px; height: 84px; border-radius: 50%;
+    border: 2px solid var(--ink); background: var(--surface); color: var(--ink);
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .recbtn.recording { border-color: var(--error); color: var(--error); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(179, 55, 43, 0.12); } }
+  @media (prefers-reduced-motion: reduce) { .recbtn.recording { animation: none; } }
+  .rectime { font-family: var(--mono); font-size: 0.9rem; color: var(--muted); min-height: 1.2rem; }
+  .recdone { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: center; }
+  audio { width: 100%; max-width: 20rem; }
+
+  .btn {
+    display: block; width: 100%; padding: 0.95rem 1rem;
+    background: var(--ink); color: var(--paper);
+    border: none; border-radius: 2px; font-family: var(--body);
+    font-size: 1.0625rem; font-weight: 600; cursor: pointer; text-align: center;
+  }
+  .btn.ghost {
+    background: transparent; color: var(--ink);
+    border: 1px solid var(--hairline); font-weight: 500;
+  }
+  .btn.small { width: auto; padding: 0.5rem 1rem; font-size: 0.9375rem; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .nav { display: flex; gap: 0.6rem; margin-top: auto; padding-top: 1.5rem; }
+  .nav .btn.ghost { flex: 0 0 5.5rem; }
+
+  .filebox {
+    border: 1px dashed var(--hairline); border-radius: 2px; background: var(--surface);
+    padding: 1rem; text-align: center; margin: 1rem 0;
+  }
+  .filebox p { margin: 0 0 0.6rem; font-size: 0.9375rem; color: var(--muted); }
+  .filelist { list-style: none; margin: 0.6rem 0 0; padding: 0; font-size: 0.875rem; text-align: left; }
+  .filelist li {
+    display: flex; justify-content: space-between; gap: 0.75rem;
+    padding: 0.35rem 0; border-bottom: 1px solid var(--hairline);
+  }
+  .filelist .size { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+
+  .howto {
+    margin: 0.9rem 0 0; padding: 0.7rem 0.9rem; border-left: 2px solid var(--hairline);
+    font-size: 0.875rem; color: var(--muted); text-align: left;
+  }
+  .howto b { color: var(--ink); font-weight: 600; }
+  .howto ol { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+
+  .summary { list-style: none; margin: 0.75rem 0 1rem; padding: 0; }
+  .summary li {
+    display: flex; justify-content: space-between; gap: 0.75rem;
+    padding: 0.5rem 0.1rem; border-bottom: 1px solid var(--hairline); font-size: 0.9375rem;
+  }
+  .summary .ok { color: var(--success); font-family: var(--mono); font-size: 0.75rem; }
+  .summary .miss { color: var(--muted); font-family: var(--mono); font-size: 0.75rem; }
+
+  .note { font-size: 0.875rem; color: var(--muted); margin-top: 0.75rem; }
+  .warn { color: var(--error); font-size: 0.9375rem; margin: 0.5rem 0; }
+  .privacy {
+    margin-top: 1.25rem; border: 1px solid var(--hairline); border-radius: 2px;
+    padding: 0.8rem 1rem; font-size: 0.85rem; color: var(--muted);
+  }
+  .privacy b { color: var(--ink); font-weight: 600; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">The Camera Roll Study</span>
+    <span class="stepmark" id="stepmark"></span>
+  </div>
+  <div class="card" id="card"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- state ---------- */
+const QUESTIONS = [
+  { id: "q1", ask: "Tell me about the last time you thought “I should post this” — what happened?" },
+  { id: "q2", ask: "The last thing you actually posted: walk me through it. How long did it take, start to finish? What apps did you touch?" },
+  { id: "q3", ask: "Editing apps you’ve downloaded over the years — which ones? What happened after?" },
+  { id: "q4", ask: "Right now, scroll your camera roll for ten seconds. Then come back and say what you felt." },
+  { id: "q5", ask: "Who do you watch that makes you think “I could do that”? What stops you?" },
+  { id: "q6", ask: "If you started posting seriously, what would that get you?" },
+  { id: "q7", ask: "What subscriptions do you currently pay for? Ever paid for an editing or creator app — which, and why did you stop?" },
+];
+const TOTAL_STEPS = QUESTIONS.length + 4; // intro + 7q + hunt + clips + send
+
+const state = {
+  step: 0,
+  meta: JSON.parse(localStorage.getItem("crs-meta") || "{}"),
+  audio: {},        // qid -> Blob (restored from IndexedDB)
+  typed: JSON.parse(localStorage.getItem("crs-typed") || "{}"),
+  huntFile: null,   // File (not persisted — too large)
+  clipFiles: [],    // File[] (not persisted)
+};
+function saveMeta() { localStorage.setItem("crs-meta", JSON.stringify(state.meta)); }
+function saveTyped() { localStorage.setItem("crs-typed", JSON.stringify(state.typed)); }
+
+/* ---------- IndexedDB for audio blobs ---------- */
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("camera-roll-study", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("audio");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbPut(key, blob) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("audio", "readwrite");
+    tx.objectStore("audio").put(blob, key);
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbDelete(key) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("audio", "readwrite");
+    tx.objectStore("audio").delete(key);
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbAll() {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const out = {};
+    const tx = db.transaction("audio", "readonly");
+    const cur = tx.objectStore("audio").openCursor();
+    cur.onsuccess = () => {
+      const c = cur.result;
+      if (c) { out[c.key] = c.value; c.continue(); } else resolve(out);
+    };
+    cur.onerror = () => reject(cur.error);
+  });
+}
+
+/* ---------- recording ---------- */
+let recorder = null, recChunks = [], recTimer = null, recStart = 0, recStream = null;
+function pickMime() {
+  if (!window.MediaRecorder) return null;
+  for (const m of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"]) {
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+function extFor(mime) { return (mime || "").includes("mp4") ? "m4a" : "webm"; }
+
+async function startRecording(qid, onStop) {
+  recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mime = pickMime();
+  recorder = new MediaRecorder(recStream, mime ? { mimeType: mime } : undefined);
+  recChunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+  recorder.onstop = async () => {
+    const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
+    recStream.getTracks().forEach((t) => t.stop());
+    recStream = null;
+    state.audio[qid] = blob;
+    await idbPut(qid, blob).catch(() => {});
+    onStop(blob);
+  };
+  recorder.start();
+  recStart = Date.now();
+}
+function stopRecording() { if (recorder && recorder.state !== "inactive") recorder.stop(); }
+function cancelRecordingUI() {
+  clearInterval(recTimer); recTimer = null;
+  if (recStream) { recStream.getTracks().forEach((t) => t.stop()); recStream = null; }
+  recorder = null;
+}
+
+/* ---------- helpers ---------- */
+function fmtSize(bytes) {
+  if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + " GB";
+  if (bytes > 1e6) return (bytes / 1e6).toFixed(1) + " MB";
+  return Math.max(1, Math.round(bytes / 1e3)) + " KB";
+}
+function fmtClock(ms) {
+  const s = Math.floor(ms / 1000);
+  return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+function el(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function buildSummary() {
+  const m = state.meta;
+  const lines = [
+    "THE CAMERA ROLL STUDY - submission",
+    "name: " + (m.name || "-"),
+    "age: " + (m.age || "-"),
+    "content niche: " + (m.niche || "-"),
+    "clip-picking took: " + (m.picktime || "-"),
+    "",
+  ];
+  QUESTIONS.forEach((q, i) => {
+    const n = i + 1;
+    if (state.audio[q.id]) lines.push("Q" + n + ": (voice recording attached)");
+    else if (state.typed[q.id]) lines.push("Q" + n + ": " + state.typed[q.id]);
+    else lines.push("Q" + n + ": (skipped)");
+  });
+  lines.push("", "screen recording: " + (state.huntFile ? "attached (" + state.huntFile.name + ")" : "sending separately from Photos"));
+  lines.push("clips: " + (state.clipFiles.length ? state.clipFiles.length + " attached" : "sending separately from Photos"));
+  return new File([lines.join("\n")], "camera-roll-study-answers.txt", { type: "text/plain" });
+}
+
+function collectFiles(tier) {
+  // tier 0: everything · 1: no clips · 2: no clips, no hunt video · 3: audio+summary only
+  const files = [buildSummary()];
+  QUESTIONS.forEach((q, i) => {
+    const blob = state.audio[q.id];
+    if (blob) files.push(new File([blob], "q" + (i + 1) + "." + extFor(blob.type), { type: blob.type }));
+  });
+  if (tier < 2 && state.huntFile) files.push(state.huntFile);
+  if (tier < 1) files.push(...state.clipFiles);
+  return files;
+}
+
+/* ---------- screens ---------- */
+const card = document.getElementById("card");
+const stepmark = document.getElementById("stepmark");
+
+function render() {
+  cancelRecordingUI();
+  card.innerHTML = "";
+  stepmark.textContent = String(state.step + 1).padStart(2, "0") + " / " + TOTAL_STEPS;
+  if (state.step === 0) renderIntro();
+  else if (state.step <= QUESTIONS.length) renderQuestion(state.step - 1);
+  else if (state.step === QUESTIONS.length + 1) renderHunt();
+  else if (state.step === QUESTIONS.length + 2) renderClips();
+  else renderSend();
+  window.scrollTo(0, 0);
+}
+function nav(back, nextLabel, nextEnabled = true) {
+  const n = el('<div class="nav"></div>');
+  if (back) {
+    const b = el('<button class="btn ghost" type="button">Back</button>');
+    b.onclick = () => { state.step--; render(); };
+    n.appendChild(b);
+  }
+  const f = el('<button class="btn" type="button">' + esc(nextLabel) + "</button>");
+  f.disabled = !nextEnabled;
+  f.onclick = () => { state.step++; render(); };
+  n.appendChild(f);
+  card.appendChild(n);
+  return f;
+}
+
+function renderIntro() {
+  card.appendChild(el(
+    '<div><h1>Your phone is full of moments. I’m studying what happens to them.</h1>' +
+    '<p>Three small tasks, ~25 minutes, done whenever suits you. No calls, no wrong answers. Rambling is the good stuff.</p>' +
+    '<div class="deal"><b>The deal:</b> you finish the tasks, and within 24 hours I hand-make you a vertical reel from your own clips — edited, captioned, ready to go. Yours to keep, no strings.</div></div>'
+  ));
+  const form = el(
+    '<div>' +
+    '<label class="field"><span>First name</span><input type="text" id="f-name" autocomplete="given-name"></label>' +
+    '<label class="field"><span>Age (optional)</span><input type="text" id="f-age" inputmode="numeric"></label>' +
+    "</div>"
+  );
+  card.appendChild(form);
+  const name = form.querySelector("#f-name"), age = form.querySelector("#f-age");
+  name.value = state.meta.name || ""; age.value = state.meta.age || "";
+  const next = nav(false, "Start", !!name.value.trim());
+  name.oninput = () => { state.meta.name = name.value.trim(); saveMeta(); next.disabled = !name.value.trim(); };
+  age.oninput = () => { state.meta.age = age.value.trim(); saveMeta(); };
+  card.appendChild(el(
+    '<div class="privacy"><b>Private, promised.</b> Nothing here uploads anywhere — recordings stay on your phone until you hit Send at the end, which opens your own share sheet. One person sees what you send. Deleted whenever you ask.</div>'
+  ));
+}
+
+function renderQuestion(qi) {
+  const q = QUESTIONS[qi];
+  card.appendChild(el(
+    '<div><p class="qnum">Question ' + (qi + 1) + " of " + QUESTIONS.length + "</p>" +
+    "<h2>" + esc(q.ask) + "</h2>" +
+    '<p class="muted">Tap record and just talk — one to three minutes is perfect.</p></div>'
+  ));
+
+  const wrap = el('<div class="recwrap"></div>');
+  card.appendChild(wrap);
+  const typeWrap = el('<div></div>');
+  card.appendChild(typeWrap);
+
+  function showIdle() {
+    wrap.innerHTML = ""; typeWrap.innerHTML = "";
+    const btn = el('<button class="recbtn" type="button" aria-label="Start recording">Record</button>');
+    const time = el('<div class="rectime"></div>');
+    wrap.append(btn, time);
+    btn.onclick = async () => {
+      try {
+        btn.disabled = true;
+        await startRecording(q.id, showDone);
+        btn.disabled = false;
+        btn.classList.add("recording");
+        btn.textContent = "Stop";
+        btn.setAttribute("aria-label", "Stop recording");
+        recTimer = setInterval(() => { time.textContent = fmtClock(Date.now() - recStart); }, 250);
+        btn.onclick = () => { clearInterval(recTimer); stopRecording(); };
+      } catch (err) {
+        btn.disabled = false;
+        showMicFallback();
+      }
+    };
+    const t = el('<p class="note" style="text-align:center"><button class="btn ghost small" type="button">Rather type your answer?</button></p>');
+    t.querySelector("button").onclick = showTyping;
+    typeWrap.appendChild(t);
+    if (state.typed[q.id]) showTyping();
+  }
+
+  function showDone(blob) {
+    clearInterval(recTimer);
+    wrap.innerHTML = ""; typeWrap.innerHTML = "";
+    const url = URL.createObjectURL(blob);
+    const done = el(
+      '<div class="recdone"><audio controls src="' + url + '"></audio>' +
+      '<button class="btn ghost small" type="button">Re-record</button></div>'
+    );
+    done.querySelector("button").onclick = async () => {
+      delete state.audio[q.id];
+      await idbDelete(q.id).catch(() => {});
+      showIdle();
+      renderNav();
+    };
+    wrap.appendChild(el('<div class="rectime" style="color:var(--success)">recorded ✓</div>'));
+    wrap.appendChild(done);
+    renderNav();
+  }
+
+  function showTyping() {
+    typeWrap.innerHTML = "";
+    const ta = el('<textarea placeholder="Type it out…"></textarea>');
+    ta.value = state.typed[q.id] || "";
+    ta.oninput = () => {
+      state.typed[q.id] = ta.value.trim();
+      saveTyped();
+      renderNav();
+    };
+    typeWrap.appendChild(ta);
+  }
+
+  function showMicFallback() {
+    wrap.innerHTML = "";
+    wrap.appendChild(el(
+      '<p class="warn">Couldn’t access the microphone. Type your answer below — or record it in the Voice Memos app and send it with everything at the end.</p>'
+    ));
+    showTyping();
+  }
+
+  let navBtn = null;
+  function renderNav() {
+    const old = card.querySelector(".nav");
+    if (old) old.remove();
+    const answered = !!(state.audio[q.id] || state.typed[q.id]);
+    navBtn = nav(true, answered ? "Next" : "Skip this one");
+  }
+
+  if (state.audio[q.id]) showDone(state.audio[q.id]);
+  else { showIdle(); renderNav(); }
+}
+
+function renderHunt() {
+  card.appendChild(el(
+    '<div><p class="qnum">Task 2 · the hunt</p>' +
+    "<h2>Screen-record yourself finding 4–6 clips you’d actually post.</h2>" +
+    '<p class="muted">Narrate if you like. <b>Stop whenever you’d naturally stop</b> — even 30 seconds in with nothing picked. That’s not failing; that’s the most useful thing you can show me.</p>' +
+    '<div class="howto"><b>Screen recording on iPhone:</b><ol>' +
+    "<li>Settings → Control Center → add <b>Screen Recording</b> (one-time)</li>" +
+    "<li>Swipe down from the top-right corner → tap the ◉ button</li>" +
+    "<li>Hunt in Photos → tap the red bar → Stop. It saves to your camera roll.</li>" +
+    "</ol></div></div>"
+  ));
+  const box = el(
+    '<div class="filebox"><p>Done? Attach it here — or skip and send it from Photos later.</p>' +
+    '<input type="file" id="f-hunt" accept="video/*" class="hidden">' +
+    '<button class="btn ghost small" type="button">Attach screen recording</button>' +
+    '<ul class="filelist"></ul></div>'
+  );
+  card.appendChild(box);
+  const input = box.querySelector("input"), list = box.querySelector(".filelist");
+  function refresh() {
+    list.innerHTML = "";
+    if (state.huntFile) {
+      list.appendChild(el("<li><span>" + esc(state.huntFile.name) + '</span><span class="size">' + fmtSize(state.huntFile.size) + "</span></li>"));
+    }
+  }
+  box.querySelector("button").onclick = () => input.click();
+  input.onchange = () => { state.huntFile = input.files[0] || null; refresh(); };
+  refresh();
+  nav(true, "Next");
+}
+
+function renderClips() {
+  card.appendChild(el(
+    '<div><p class="qnum">Task 3 · the clips</p>' +
+    "<h2>Pick 10–20 clips or photos you’d consider posting.</h2>" +
+    '<p class="muted">The ones from your hunt plus anything else that feels right. These are what your reel gets made from.</p></div>'
+  ));
+  const box = el(
+    '<div class="filebox"><p>Attach them here — or skip and send from Photos later (select all → share).</p>' +
+    '<input type="file" id="f-clips" accept="image/*,video/*" multiple class="hidden">' +
+    '<button class="btn ghost small" type="button">Attach clips</button>' +
+    '<ul class="filelist"></ul></div>'
+  );
+  card.appendChild(box);
+  const input = box.querySelector("input"), list = box.querySelector(".filelist");
+  function refresh() {
+    list.innerHTML = "";
+    state.clipFiles.forEach((f) => {
+      list.appendChild(el("<li><span>" + esc(f.name) + '</span><span class="size">' + fmtSize(f.size) + "</span></li>"));
+    });
+    if (state.clipFiles.length) {
+      const total = state.clipFiles.reduce((s, f) => s + f.size, 0);
+      list.appendChild(el('<li><span><b>' + state.clipFiles.length + " files</b></span><span class=\"size\">" + fmtSize(total) + "</span></li>"));
+    }
+  }
+  box.querySelector("button").onclick = () => input.click();
+  input.onchange = () => { state.clipFiles = Array.from(input.files); refresh(); };
+  refresh();
+
+  const form = el(
+    '<div>' +
+    '<label class="field"><span>What would you post about? (travel, food, day-in-the-life…)</span><input type="text" id="f-niche"></label>' +
+    '<label class="field"><span>Roughly how long did picking these take?</span><input type="text" id="f-picktime" placeholder="e.g. 10 minutes"></label>' +
+    "</div>"
+  );
+  card.appendChild(form);
+  const niche = form.querySelector("#f-niche"), picktime = form.querySelector("#f-picktime");
+  niche.value = state.meta.niche || ""; picktime.value = state.meta.picktime || "";
+  niche.oninput = () => { state.meta.niche = niche.value.trim(); saveMeta(); };
+  picktime.oninput = () => { state.meta.picktime = picktime.value.trim(); saveMeta(); };
+  nav(true, "Review & send");
+}
+
+function renderSend() {
+  card.appendChild(el("<div><h2>Send it all back.</h2></div>"));
+  const sum = el('<ul class="summary"></ul>');
+  const answered = QUESTIONS.filter((q) => state.audio[q.id] || state.typed[q.id]).length;
+  sum.appendChild(el("<li><span>Questions answered</span><span class=\"" + (answered ? "ok" : "miss") + '">' + answered + " / " + QUESTIONS.length + "</span></li>"));
+  sum.appendChild(el("<li><span>Screen recording</span><span class=\"" + (state.huntFile ? "ok" : "miss") + '">' + (state.huntFile ? "attached" : "from Photos") + "</span></li>"));
+  sum.appendChild(el("<li><span>Clips</span><span class=\"" + (state.clipFiles.length ? "ok" : "miss") + '">' + (state.clipFiles.length ? state.clipFiles.length + " attached" : "from Photos") + "</span></li>"));
+  card.appendChild(sum);
+
+  const status = el('<p class="note"></p>');
+  const sendBtn = el('<button class="btn" type="button">Send everything</button>');
+  card.appendChild(sendBtn);
+  card.appendChild(status);
+
+  sendBtn.onclick = async () => {
+    for (let tier = 0; tier <= 3; tier++) {
+      const files = collectFiles(tier);
+      const payload = { files, title: "Camera Roll Study" };
+      if (navigator.canShare && navigator.canShare(payload)) {
+        try {
+          await navigator.share(payload);
+          status.textContent = tier === 0
+            ? "Sent! Thank you — your reel is coming within 24 hours."
+            : "Sent the recordings! The videos were too big for the share sheet — send those straight from Photos to the same chat.";
+          return;
+        } catch (err) {
+          if (err.name === "AbortError") { status.textContent = "Share cancelled — tap Send when ready."; return; }
+        }
+      }
+    }
+    // No Web Share support at all: offer downloads
+    status.textContent = "This browser can’t open a share sheet. Download your answers below and send them in our chat.";
+    collectFiles(3).forEach((f) => {
+      const a = el('<a class="btn ghost" style="margin-top:0.5rem" download="' + esc(f.name) + '">Download ' + esc(f.name) + "</a>");
+      a.href = URL.createObjectURL(f);
+      card.appendChild(a);
+    });
+  };
+
+  card.appendChild(el(
+    '<p class="note">The share sheet opens on <b>your</b> phone — pick the chat where we connected (Messages, WhatsApp, wherever) and send it to me. If the videos are too big, send them straight from Photos; the recordings here are small and always fit.</p>'
+  ));
+  card.appendChild(el(
+    '<div class="privacy"><b>Then what?</b> Within 24 hours you get a vertical reel made from your clips — hook line, caption, hashtags. It’s yours. Post it, keep it, ignore it — entirely up to you.</div>'
+  ));
+  nav(true, "Done");
+  const doneBtn = card.querySelector(".nav .btn:not(.ghost)");
+  doneBtn.onclick = () => {
+    card.innerHTML = "";
+    card.appendChild(el(
+      "<div><h1>Thank you.</h1><p>Watch your messages — your reel lands within 24 hours.</p>" +
+      '<p class="muted">You can close this page. Your answers stay on your phone; ask me anytime to delete what you sent.</p></div>'
+    ));
+    stepmark.textContent = "done";
+  };
+}
+
+/* ---------- boot ---------- */
+(async () => {
+  try { state.audio = await idbAll(); } catch (e) { state.audio = {}; }
+  render();
+})();
+</script>
+</body>
+</html>

@@ -132,6 +132,25 @@
   .summary .ok { color: var(--success); font-family: var(--mono); font-size: 0.75rem; }
   .summary .miss { color: var(--muted); font-family: var(--mono); font-size: 0.75rem; }
 
+  .opts { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0 1.25rem; }
+  .opts button {
+    width: 100%; text-align: left; padding: 0.85rem 1rem;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--hairline); border-radius: 2px;
+    font-family: var(--body); font-size: 1rem; cursor: pointer;
+  }
+  .opts button[aria-pressed="true"] {
+    border-color: var(--amber); background: var(--amber-wash); font-weight: 600;
+  }
+  .gatewrap { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 22rem; margin: 0 auto; width: 100%; }
+  .gatewrap h1 { font-size: 1.6rem; text-align: center; }
+  .gatewrap .muted { text-align: center; }
+  input.gatecode {
+    text-align: center; font-family: var(--mono); font-size: 1.15rem; letter-spacing: 0.15em;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--hairline); border-radius: 2px;
+    width: 100%; padding: 0.8rem; margin: 0.75rem 0 0.6rem;
+  }
   .note { font-size: 0.875rem; color: var(--muted); margin-top: 0.75rem; }
   .warn { color: var(--error); font-size: 0.9375rem; margin: 0.5rem 0; }
   .privacy {
@@ -152,10 +171,17 @@
 </div>
 
 <script>
-/* Drive intake endpoint — empty url = share-sheet-only mode */
+/* Drive intake endpoint — empty url = share-sheet-only mode.
+   The upload token is AES-GCM-encrypted with the access code; it is set on
+   window.CRS.token only after a successful unlock. */
 window.CRS = {
   driveUrl: "https://script.google.com/macros/s/AKfycbxNlnr_-_hsF37N0W9xAV7xrfr537XM-YJQtfPsqnxds-XH18m7Fg4oCbpDsv-xSrPt/exec",
-  token: "crs-f631276a6d4b",
+  token: null,
+  lock: {
+    salt: "d0a82f559e9145791d897b069452d735",
+    iv: "fdc816210012065cec0a1f0a",
+    ct: "cd5535f843d18107dd342d6dfd8e89350c3bdd3dd9c60c080308baadcc26d540"
+  },
   maxUploadBytes: 28 * 1024 * 1024
 };
 </script>
@@ -172,7 +198,7 @@ const QUESTIONS = [
   { id: "q6", ask: "If you started posting seriously, what would that get you?" },
   { id: "q7", ask: "What subscriptions do you currently pay for? Ever paid for an editing or creator app — which, and why did you stop?" },
 ];
-const TOTAL_STEPS = QUESTIONS.length + 4; // intro + 7q + hunt + clips + send
+const TOTAL_STEPS = QUESTIONS.length + 5; // screener + intro + 7q + hunt + clips + send
 
 const state = {
   step: 0,
@@ -283,7 +309,10 @@ function buildSummary(oversizeNames) {
   const lines = [
     "THE CAMERA ROLL STUDY - submission",
     "name: " + (m.name || "-"),
+    "email: " + (m.email || "-"),
     "age: " + (m.age || "-"),
+    "screener - wants to post but hasn't: " + (m.intent || "-"),
+    "screener - library size: " + (m.library || "-"),
     "content niche: " + (m.niche || "-"),
     "clip-picking took: " + (m.picktime || "-"),
     "",
@@ -368,12 +397,110 @@ function render() {
   cancelRecordingUI();
   card.innerHTML = "";
   stepmark.textContent = String(state.step + 1).padStart(2, "0") + " / " + TOTAL_STEPS;
-  if (state.step === 0) renderIntro();
-  else if (state.step <= QUESTIONS.length) renderQuestion(state.step - 1);
-  else if (state.step === QUESTIONS.length + 1) renderHunt();
-  else if (state.step === QUESTIONS.length + 2) renderClips();
+  if (state.step === 0) renderScreener();
+  else if (state.step === 1) renderIntro();
+  else if (state.step <= QUESTIONS.length + 1) renderQuestion(state.step - 2);
+  else if (state.step === QUESTIONS.length + 2) renderHunt();
+  else if (state.step === QUESTIONS.length + 3) renderClips();
   else renderSend();
   window.scrollTo(0, 0);
+}
+
+/* ---------- access gate ---------- */
+function hexBytes(s) { return new Uint8Array(s.match(/.{2}/g).map((b) => parseInt(b, 16))); }
+async function unlockWithPassword(pw) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]
+  );
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: hexBytes(window.CRS.lock.salt), iterations: 100000, hash: "SHA-256" },
+    keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+  );
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: hexBytes(window.CRS.lock.iv) }, key, hexBytes(window.CRS.lock.ct)
+  );
+  return new TextDecoder().decode(pt); // throws on a wrong password
+}
+function renderGate(withError) {
+  card.innerHTML = "";
+  stepmark.textContent = "invite only";
+  const g = el(
+    '<div class="gatewrap"><h1>This study is by invitation.</h1>' +
+    '<p class="muted">Enter the access code from our chat.</p>' +
+    '<input class="gatecode" type="text" autocapitalize="none" autocorrect="off" autocomplete="off" aria-label="Access code">' +
+    (withError ? '<p class="warn" style="text-align:center">That code didn’t work — check our chat and try again.</p>' : "") +
+    '<button class="btn" type="button">Enter</button></div>'
+  );
+  card.appendChild(g);
+  const input = g.querySelector("input"), btn = g.querySelector("button");
+  async function attempt() {
+    const pw = input.value.trim().toLowerCase();
+    if (!pw) return;
+    try {
+      window.CRS.token = await unlockWithPassword(pw);
+      localStorage.setItem("crs-pass", pw);
+      render();
+    } catch (e) { renderGate(true); }
+  }
+  btn.onclick = attempt;
+  input.onkeydown = (e) => { if (e.key === "Enter") attempt(); };
+  input.focus();
+}
+
+/* ---------- screener ---------- */
+const LIBRARY_OPTS = [
+  { id: "u1k", label: "Under 1,000" },
+  { id: "1-5k", label: "1,000 – 5,000" },
+  { id: "5-20k", label: "5,000 – 20,000" },
+  { id: "20k+", label: "More than 20,000" },
+];
+function qualifies() {
+  return state.meta.intent === "yes" && (state.meta.library === "5-20k" || state.meta.library === "20k+");
+}
+function optGroup(current, options, onPick) {
+  const wrap = el('<div class="opts" role="group"></div>');
+  options.forEach((o) => {
+    const b = el('<button type="button" aria-pressed="' + (current === o.id) + '">' + esc(o.label) + "</button>");
+    b.onclick = () => { onPick(o.id); };
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+function renderScreener() {
+  card.appendChild(el(
+    '<div><p class="qnum">Two quick questions first</p>' +
+    "<h2>Do you fit this round?</h2>" +
+    '<p>Have you ever thought about posting content regularly on TikTok or Instagram, but not really done it?</p></div>'
+  ));
+  let intentWrap, libWrap, next;
+  function refresh() {
+    const canGo = state.meta.intent && state.meta.library;
+    next.disabled = !canGo;
+  }
+  intentWrap = optGroup(state.meta.intent, [
+    { id: "yes", label: "Yes — thought about it, haven’t really done it" },
+    { id: "no", label: "No, that’s not me" },
+  ], (id) => { state.meta.intent = id; saveMeta(); redraw(); });
+  card.appendChild(intentWrap);
+  card.appendChild(el("<p>Roughly how many photos and videos are on your phone?</p>"));
+  libWrap = optGroup(state.meta.library, LIBRARY_OPTS, (id) => { state.meta.library = id; saveMeta(); redraw(); });
+  card.appendChild(libWrap);
+  next = nav(false, "Continue", !!(state.meta.intent && state.meta.library));
+  next.onclick = () => {
+    if (qualifies()) { state.step = 1; render(); }
+    else renderScreenout();
+  };
+  function redraw() { render(); }
+  refresh();
+}
+function renderScreenout() {
+  card.innerHTML = "";
+  stepmark.textContent = "—";
+  card.appendChild(el(
+    "<div><h1>Thank you — you’re not quite who this round needs.</h1>" +
+    '<p class="muted">This particular study is looking for a very specific situation, and your answers put you just outside it. Nothing you entered was sent or stored anywhere.</p>' +
+    '<p class="muted">If you know someone who’s been meaning to post but never quite starts — send them my way.</p></div>'
+  ));
 }
 function nav(back, nextLabel, nextEnabled = true) {
   const n = el('<div class="nav"></div>');
@@ -399,14 +526,17 @@ function renderIntro() {
   const form = el(
     '<div>' +
     '<label class="field"><span>First name</span><input type="text" id="f-name" autocomplete="given-name"></label>' +
+    '<label class="field"><span>Email — where your reel goes if our chat hiccups</span><input type="text" id="f-email" inputmode="email" autocapitalize="none" autocomplete="email"></label>' +
     '<label class="field"><span>Age (optional)</span><input type="text" id="f-age" inputmode="numeric"></label>' +
     "</div>"
   );
   card.appendChild(form);
-  const name = form.querySelector("#f-name"), age = form.querySelector("#f-age");
-  name.value = state.meta.name || ""; age.value = state.meta.age || "";
-  const next = nav(false, "Start", !!name.value.trim());
-  name.oninput = () => { state.meta.name = name.value.trim(); saveMeta(); next.disabled = !name.value.trim(); };
+  const name = form.querySelector("#f-name"), email = form.querySelector("#f-email"), age = form.querySelector("#f-age");
+  name.value = state.meta.name || ""; email.value = state.meta.email || ""; age.value = state.meta.age || "";
+  const valid = () => !!(name.value.trim() && /.+@.+\..+/.test(email.value.trim()));
+  const next = nav(true, "Start", valid());
+  name.oninput = () => { state.meta.name = name.value.trim(); saveMeta(); next.disabled = !valid(); };
+  email.oninput = () => { state.meta.email = email.value.trim(); saveMeta(); next.disabled = !valid(); };
   age.oninput = () => { state.meta.age = age.value.trim(); saveMeta(); };
   card.appendChild(el(
     '<div class="privacy"><b>Private, promised.</b> Nothing here uploads anywhere — recordings stay on your phone until you hit Send at the end, which opens your own share sheet. One person sees what you send. Deleted whenever you ask.</div>'
@@ -671,7 +801,11 @@ function renderSend() {
 /* ---------- boot ---------- */
 (async () => {
   try { state.audio = await idbAll(); } catch (e) { state.audio = {}; }
-  render();
+  const stored = localStorage.getItem("crs-pass");
+  if (stored && window.isSecureContext) {
+    try { window.CRS.token = await unlockWithPassword(stored); render(); return; } catch (e) {}
+  }
+  renderGate(false);
 })();
 </script>
 </body>

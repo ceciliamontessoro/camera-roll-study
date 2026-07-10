@@ -338,6 +338,24 @@ function buildSummary(oversizeNames) {
 }
 
 /* ---------- Drive upload ---------- */
+/// The endpoint is resolved at SEND time from a cache-busted config.json,
+/// so a page cached weeks ago on a participant's phone still posts to the
+/// current endpoint (stale-tab bug, 2026-07-10). Baked-in URL is the
+/// offline/first-deploy fallback.
+async function refreshDriveUrl() {
+  try {
+    const res = await fetch("config.json?v=" + Date.now(), { cache: "no-store" });
+    if (res.ok) {
+      const cfg = await res.json();
+      if (cfg && typeof cfg.driveUrl === "string" && cfg.driveUrl) {
+        window.CRS.driveUrl = cfg.driveUrl;
+      }
+    }
+  } catch (configError) {
+    void configError; // offline — keep the baked-in URL
+  }
+}
+
 function personLabel() {
   return (state.meta.name || "anonymous") + " — " + new Date().toISOString().slice(0, 10);
 }
@@ -774,6 +792,7 @@ function renderSend() {
 
   async function sendToDrive() {
     sendBtn.disabled = true;
+    await refreshDriveUrl(); // stale cached pages heal here
     const { items, oversize } = collectUploadItems();
     const failed = [];
     for (let i = 0; i < items.length; i++) {

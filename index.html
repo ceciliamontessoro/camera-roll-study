@@ -116,6 +116,11 @@
     padding: 0.35rem 0; border-bottom: 1px solid var(--hairline);
   }
   .filelist .size { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+  .filelist .size button {
+    margin-left: 0.4rem; border: none; background: none; color: var(--muted);
+    font-size: 0.9rem; line-height: 1; padding: 0.2rem; cursor: pointer;
+  }
+  .filelist .size button:hover, .filelist .size button:focus-visible { color: var(--error); }
 
   .howto {
     margin: 0.9rem 0 0; padding: 0.7rem 0.9rem; border-left: 2px solid var(--hairline);
@@ -671,17 +676,26 @@ function renderClips() {
     '<p class="muted">The ones from your hunt plus anything else that feels right. These are what your reel gets made from.</p></div>'
   ));
   const box = el(
-    '<div class="filebox"><p>Attach them here — or skip and send from Photos later (select all → share).</p>' +
+    '<div class="filebox"><p>Attach them here — as many times as you need, they’ll keep adding up. Or skip and send from Photos later (select all → share).</p>' +
     '<input type="file" id="f-clips" accept="image/*,video/*" multiple class="hidden">' +
     '<button class="btn ghost small" type="button">Attach clips</button>' +
     '<ul class="filelist"></ul></div>'
   );
   card.appendChild(box);
   const input = box.querySelector("input"), list = box.querySelector(".filelist");
+  function fileKey(f) { return f.name + "|" + f.size + "|" + f.lastModified; }
   function refresh() {
     list.innerHTML = "";
-    state.clipFiles.forEach((f) => {
-      list.appendChild(el("<li><span>" + esc(f.name) + '</span><span class="size">' + fmtSize(f.size) + "</span></li>"));
+    state.clipFiles.forEach((f, index) => {
+      const li = el(
+        "<li><span>" + esc(f.name) + '</span><span class="size">' + fmtSize(f.size) +
+        ' <button type="button" aria-label="Remove ' + esc(f.name) + '">✕</button></span></li>'
+      );
+      li.querySelector("button").onclick = () => {
+        state.clipFiles.splice(index, 1);
+        refresh();
+      };
+      list.appendChild(li);
     });
     if (state.clipFiles.length) {
       const total = state.clipFiles.reduce((s, f) => s + f.size, 0);
@@ -689,7 +703,18 @@ function renderClips() {
     }
   }
   box.querySelector("button").onclick = () => input.click();
-  input.onchange = () => { state.clipFiles = Array.from(input.files); refresh(); };
+  input.onchange = () => {
+    // Every tap ADDS to the pile — a single OS picker session can't always
+    // grab everything (iOS in particular balks at large multi-video picks),
+    // so replacing here silently erased earlier work. Dedupe so re-picking
+    // the same file twice doesn't double it.
+    const seen = new Set(state.clipFiles.map(fileKey));
+    for (const f of Array.from(input.files)) {
+      if (!seen.has(fileKey(f))) { state.clipFiles.push(f); seen.add(fileKey(f)); }
+    }
+    input.value = ""; // allow re-picking the same file after a removal
+    refresh();
+  };
   refresh();
 
   const form = el(

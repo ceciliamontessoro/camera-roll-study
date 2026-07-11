@@ -169,7 +169,7 @@
 <body>
 <div class="app">
   <div class="topbar">
-    <span class="brand">The Camera Roll Study</span>
+    <span class="brand">The Camera Roll Study · v8</span>
     <span class="stepmark" id="stepmark"></span>
   </div>
   <div class="card" id="card"></div>
@@ -180,6 +180,7 @@
    The upload token is AES-GCM-encrypted with the access code; it is set on
    window.CRS.token only after a successful unlock. */
 window.CRS = {
+  appVersion: 8, // shown in the header; config.json advertises the latest
   driveUrl: "https://script.google.com/macros/s/AKfycby98L9c1z6gDokusgSaYPzNtb_o8hdgrp4D8-B7t5oPi4ky8Fv9hGPQ2isn59uYram1/exec",
   token: null,
   lock: {
@@ -344,18 +345,41 @@ function buildSummary(oversizeNames) {
 /// so a page cached weeks ago on a participant's phone still posts to the
 /// current endpoint (stale-tab bug, 2026-07-10). Baked-in URL is the
 /// offline/first-deploy fallback.
-async function refreshDriveUrl() {
+async function fetchConfig() {
   try {
     const res = await fetch("config.json?v=" + Date.now(), { cache: "no-store" });
-    if (res.ok) {
-      const cfg = await res.json();
-      if (cfg && typeof cfg.driveUrl === "string" && cfg.driveUrl) {
-        window.CRS.driveUrl = cfg.driveUrl;
-      }
-    }
+    if (res.ok) return await res.json();
   } catch (configError) {
-    void configError; // offline — keep the baked-in URL
+    void configError; // offline — callers keep baked-in values
   }
+  return null;
+}
+
+async function refreshDriveUrl() {
+  const cfg = await fetchConfig();
+  if (cfg && typeof cfg.driveUrl === "string" && cfg.driveUrl) {
+    window.CRS.driveUrl = cfg.driveUrl;
+  }
+}
+
+/// Stale-tab detector: iOS keeps an opened page alive for days, so fixes
+/// never reach a participant who reopens the same tab (third incident,
+/// 2026-07-11). config.json advertises the current version; older pages
+/// show a one-tap refresh bar. Answers survive the reload by design.
+async function checkForNewerVersion() {
+  const cfg = await fetchConfig();
+  if (!cfg || !(Number(cfg.version) > Number(window.CRS.appVersion || 0))) return;
+  const bar = el(
+    '<div style="position:fixed;left:0;right:0;bottom:0;z-index:9;background:var(--ink);' +
+    'color:var(--paper);padding:0.8rem 1.25rem;display:flex;align-items:center;gap:1rem">' +
+    '<span style="flex:1;font-size:0.9375rem">This page has an update with fixes.</span>' +
+    '<button type="button" style="background:var(--paper);color:var(--ink);border:none;' +
+    'border-radius:2px;padding:0.5rem 1rem;font-weight:600;min-height:44px">Refresh</button></div>'
+  );
+  bar.querySelector("button").onclick = () => {
+    location.href = location.pathname + "?v=" + cfg.version; // cache-busting reload
+  };
+  document.body.appendChild(bar);
 }
 
 function personLabel() {
@@ -396,7 +420,11 @@ async function uploadOne(item, onProgress) {
   if (item.blob.size > window.CRS.directUploadBytes) {
     const session = await postEndpoint({ ...base, kind: "session" }, 60000);
     if (session && session.ok && session.sessionUrl) {
-      return putWithProgress(session.sessionUrl, item.blob, item.type, onProgress);
+      const streamed = await putWithProgress(session.sessionUrl, item.blob, item.type, onProgress);
+      if (streamed) return true;
+      // Session existed but the direct stream failed (network or a blocked
+      // PUT) — route to chat rather than a scary dead end.
+      if (item.blob.size > window.CRS.base64CeilingBytes) return "needsChat";
     }
     if (item.blob.size > window.CRS.base64CeilingBytes) return "needsChat";
   }
@@ -733,7 +761,9 @@ function renderClips() {
     '<p class="muted">The ones from your hunt plus anything else that feels right. These are what your reel gets made from.</p></div>'
   ));
   const box = el(
-    '<div class="filebox"><p>You can select many at once. Add as many rounds as you need — they keep adding up.</p>' +
+    '<div class="filebox"><p>You can select many at once. Add as many rounds as you need — they keep adding up. ' +
+    "iPhone prepares videos before attaching, so give it a moment after picking.</p>" +
+    '<p class="warn hidden" id="pick-warn"></p>' +
     '<input type="file" id="f-clips" accept="video/*" multiple class="hidden">' +
     '<input type="file" id="f-photos" accept="image/*" multiple class="hidden">' +
     '<div style="display:flex; gap:0.5rem; justify-content:center">' +
@@ -770,6 +800,16 @@ function renderClips() {
     const input = box.querySelector("#" + btn.dataset.for);
     btn.onclick = () => input.click();
     input.onchange = () => {
+      const warn = document.getElementById("pick-warn");
+      // iOS occasionally hands back zero files after a long video transcode —
+      // say so instead of looking broken.
+      if (input.files.length === 0) {
+        warn.textContent = "Nothing came through from the picker — that happens on iPhone with "
+          + "several long videos at once. Try again with fewer at a time.";
+        warn.classList.remove("hidden");
+        return;
+      }
+      warn.classList.add("hidden");
       const seen = new Set(state.clipFiles.map(fileKey));
       for (const f of Array.from(input.files)) {
         if (!seen.has(fileKey(f))) { state.clipFiles.push(f); seen.add(fileKey(f)); }
@@ -913,6 +953,7 @@ function renderSend() {
 /* ---------- boot ---------- */
 (async () => {
   try { state.audio = await idbAll(); } catch (e) { state.audio = {}; }
+  checkForNewerVersion(); // fire-and-forget; shows a refresh bar on stale pages
   const stored = localStorage.getItem("crs-pass");
   if (stored && window.isSecureContext) {
     try { window.CRS.token = await unlockWithPassword(stored); render(); return; } catch (e) {}

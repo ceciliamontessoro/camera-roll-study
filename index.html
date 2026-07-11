@@ -86,6 +86,16 @@
   .recbtn.recording { border-color: var(--error); color: var(--error); animation: pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(179, 55, 43, 0.12); } }
   @media (prefers-reduced-motion: reduce) { .recbtn.recording { animation: none; } }
+  .pickload {
+    font-family: var(--mono); font-size: 0.875rem; color: var(--amber);
+    padding: 0.6rem 0; text-align: center;
+  }
+  .pickload::after {
+    content: "…"; display: inline-block; width: 0; overflow: hidden;
+    vertical-align: bottom; animation: pickdots 1.2s steps(4, end) infinite;
+  }
+  @keyframes pickdots { to { width: 1.2em; } }
+  @media (prefers-reduced-motion: reduce) { .pickload::after { animation: none; } }
   .rectime { font-family: var(--mono); font-size: 0.9rem; color: var(--muted); min-height: 1.2rem; }
   .recdone { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: center; }
   audio { width: 100%; max-width: 20rem; }
@@ -169,7 +179,7 @@
 <body>
 <div class="app">
   <div class="topbar">
-    <span class="brand">The Camera Roll Study · v8</span>
+    <span class="brand">The Camera Roll Study · v9</span>
     <span class="stepmark" id="stepmark"></span>
   </div>
   <div class="card" id="card"></div>
@@ -180,7 +190,7 @@
    The upload token is AES-GCM-encrypted with the access code; it is set on
    window.CRS.token only after a successful unlock. */
 window.CRS = {
-  appVersion: 8, // shown in the header; config.json advertises the latest
+  appVersion: 9, // shown in the header; config.json advertises the latest
   driveUrl: "https://script.google.com/macros/s/AKfycby98L9c1z6gDokusgSaYPzNtb_o8hdgrp4D8-B7t5oPi4ky8Fv9hGPQ2isn59uYram1/exec",
   token: null,
   lock: {
@@ -764,6 +774,7 @@ function renderClips() {
     '<div class="filebox"><p>You can select many at once. Add as many rounds as you need — they keep adding up. ' +
     "iPhone prepares videos before attaching, so give it a moment after picking.</p>" +
     '<p class="warn hidden" id="pick-warn"></p>' +
+    '<p class="pickload hidden" id="pick-loading" role="status">preparing your selection — long videos take a moment</p>' +
     '<input type="file" id="f-clips" accept="video/*" multiple class="hidden">' +
     '<input type="file" id="f-photos" accept="image/*" multiple class="hidden">' +
     '<div style="display:flex; gap:0.5rem; justify-content:center">' +
@@ -796,10 +807,25 @@ function renderClips() {
   // Separate photo/video pickers: iOS multi-select is reliable per media
   // type but flaky with a combined image+video accept (founder device
   // report 2026-07-10). Every pick ADDS to the pile, deduped.
+  // iOS transcodes videos between the picker's "Add" and our change event —
+  // often many silent seconds. Show a preparing state from the tap until
+  // files (or a cancel) arrive; a failsafe timer clears it regardless.
+  let pickTimer = null;
+  function setPicking(active) {
+    document.getElementById("pick-loading").classList.toggle("hidden", !active);
+    box.querySelectorAll("button[data-for]").forEach((b) => { b.disabled = active; });
+    clearTimeout(pickTimer);
+    if (active) pickTimer = setTimeout(() => setPicking(false), 180000);
+  }
   box.querySelectorAll("button[data-for]").forEach((btn) => {
     const input = box.querySelector("#" + btn.dataset.for);
-    btn.onclick = () => input.click();
+    btn.onclick = () => {
+      setPicking(true);
+      input.click();
+    };
+    input.addEventListener("cancel", () => setPicking(false));
     input.onchange = () => {
+      setPicking(false);
       const warn = document.getElementById("pick-warn");
       // iOS occasionally hands back zero files after a long video transcode —
       // say so instead of looking broken.
